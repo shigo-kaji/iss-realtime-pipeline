@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="10">
+  <title>ISS Real-Time Tracker</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    :root { --bg:#0b1220; --card:#131c2e; --line:#24324d; --text:#e6ecf5; --muted:#8a9bb8; --accent:#4fc3f7; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:Arial, sans-serif; background:var(--bg); color:var(--text); }
+    header { padding:20px 24px; border-bottom:1px solid var(--line); }
+    h1 { margin:0; font-size:22px; }
+    header p { margin:4px 0 0; color:var(--muted); font-size:13px; }
+    main { padding:20px 24px; display:grid; gap:20px; }
+    .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; }
+    .stat { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px; }
+    .stat span { display:block; color:var(--muted); font-size:12px; }
+    .stat b { font-size:20px; color:var(--accent); }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:8px; }
+    .card h2 { margin:0; padding:14px 16px; font-size:15px; border-bottom:1px solid var(--line); }
+    .card h2 small { color:var(--muted); font-weight:normal; }
+    #map { height:380px; border-radius:0 0 8px 8px; }
+    .scroll { max-height:340px; overflow:auto; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th, td { padding:8px 12px; text-align:left; white-space:nowrap; border-bottom:1px solid var(--line); }
+    th { position:sticky; top:0; background:#1a2540; color:var(--muted); z-index:1; }
+    tr:hover td { background:#18233a; }
+    .empty { padding:16px; color:var(--muted); }
+  </style>
+</head>
+<body>
+<header>
+  <h1>International Space Station Real-Time Data Pipeline</h1>
+  <p>Where the ISS At? API &rarr; Kafka &rarr; Spark Structured Streaming &rarr; Cassandra &rarr; Flask &middot; auto-refreshes every 10 s</p>
+</header>
+<main>
+  <section class="stats">
+    <div class="stat"><span>Currently Over</span><b>{{ location }}</b></div>
+    <div class="stat"><span>Latitude</span><b>{{ '%.4f'|format(latest.latitude) if latest else '-' }}</b></div>
+    <div class="stat"><span>Longitude</span><b>{{ '%.4f'|format(latest.longitude) if latest else '-' }}</b></div>
+    <div class="stat"><span>Altitude (km)</span><b>{{ latest.altitude_km if latest else '-' }}</b></div>
+    <div class="stat"><span>Velocity (km/h)</span><b>{{ latest.velocity_kmh if latest else '-' }}</b></div>
+    <div class="stat"><span>Position rows</span><b>{{ pos_count }}</b></div>
+    <div class="stat"><span>Telemetry rows</span><b>{{ tel_count }}</b></div>
+  </section>
+
+  <section class="card">
+    <h2>Live Position Map <small>(last 50 points from Cassandra)</small></h2>
+    <div id="map"></div>
+  </section>
+
+  <section class="card">
+    <h2>ISS Position <small>(topic: iss_position &middot; table: iss_position)</small></h2>
+    <div class="scroll">
+      {% if position %}
+      <table>
+        <tr><th>Record Time (UTC)</th><th>Location</th><th>Latitude</th><th>Longitude</th><th>Altitude (km)</th><th>Velocity (km/h)</th><th>Visibility</th><th>Processed At</th></tr>
+        {% for r in position %}
+        <tr><td>{{ r.record_time }}</td><td>{{ r.location or '-' }}</td><td>{{ r.latitude }}</td><td>{{ r.longitude }}</td><td>{{ r.altitude_km }}</td><td>{{ r.velocity_kmh }}</td><td>{{ r.visibility }}</td><td>{{ r.processed_at }}</td></tr>
+        {% endfor %}
+      </table>
+      {% else %}<p class="empty">No data yet. Start the producers and the Spark job.</p>{% endif %}
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>ISS Telemetry <small>(topic: iss_telemetry &middot; table: iss_telemetry)</small></h2>
+    <div class="scroll">
+      {% if telemetry %}
+      <table>
+        <tr><th>Record Time (UTC)</th><th>Footprint (km)</th><th>Day Number</th><th>Solar Lat</th><th>Solar Lon</th><th>Units</th><th>Processed At</th></tr>
+        {% for r in telemetry %}
+        <tr><td>{{ r.record_time }}</td><td>{{ r.footprint_km }}</td><td>{{ r.daynum }}</td><td>{{ r.solar_lat }}</td><td>{{ r.solar_lon }}</td><td>{{ r.units }}</td><td>{{ r.processed_at }}</td></tr>
+        {% endfor %}
+      </table>
+      {% else %}<p class="empty">No data yet.</p>{% endif %}
+    </div>
+  </section>
+</main>
+
+<script>
+  const pts = {{ points | tojson }};
+  const map = L.map('map', { worldCopyJump: true }).setView(pts.length ? pts[0] : [0, 0], 3);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 8, attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+  if (pts.length) {
+    L.polyline(pts, { color: '#4fc3f7', weight: 2 }).addTo(map);
+    L.circleMarker(pts[0], { radius: 8, color: '#ff5252', fillOpacity: 0.9 })
+      .addTo(map)
+      .bindPopup({{ ('ISS is over: ' ~ location) | tojson }})
+      .openPopup();
+  }
+</script>
+</body>
+</html>

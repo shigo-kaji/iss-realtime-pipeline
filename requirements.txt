@@ -1,0 +1,6 @@
+requests
+kafka-python-ng
+pyspark==3.5.1
+cassandra-driver
+flask
+pycountry
